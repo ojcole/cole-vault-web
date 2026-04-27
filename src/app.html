@@ -5,6 +5,15 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="description" content="Cole Vault - Deterministic password generator" />
 		<title>Cole Vault</title>
+		<script>
+			try {
+				if (localStorage.getItem('cole-vault-dark') === 'true') {
+					document.documentElement.setAttribute('data-theme', 'dark');
+				}
+			} catch {
+				// Ignore errors reading localStorage
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

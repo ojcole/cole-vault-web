@@ -14,7 +14,8 @@
 		purgeData,
 		addCharset,
 		deleteCharset,
-		renameCharset
+		renameCharset,
+		charsetIsUsed
 	} from '$lib/store.svelte';
 	import type { Site, Charset } from '$lib/store.svelte';
 	import { onDestroy } from 'svelte';
@@ -47,9 +48,13 @@
 	let charsetError = $state('');
 	let charsetSuccess = $state('');
 	let renamingCharset = $state<string | null>(null);
-	let renameValue = $state('');
 	let renamingTo = $state('');
 	let deleteCharsetTarget = $state<string | null>(null);
+	let deleteCharsetError = $state('');
+	let defaultCharset = $state('');
+	let defaultLength = $state(32);
+	let newSiteCharset = $state('');
+	let newSiteLength = $state(32);
 
 	const SHORT_WAIT = 2000;
 	const LONG_WAIT = 10000;
@@ -59,6 +64,10 @@
 		const s = getSettings();
 		darkMode = s.dark;
 		settings = s;
+		defaultCharset = s.defaultCharset ?? '';
+		defaultLength = s.defaultLength ?? 32;
+		newSiteCharset = s.defaultCharset ?? '';
+		newSiteLength = s.defaultLength ?? 32;
 	});
 
 	$effect(() => {
@@ -96,6 +105,12 @@
 			: sites
 	);
 
+	function selectFirstFiltered() {
+		if (filteredSites.length > 0) {
+			selectedId = filteredSites[0].id;
+		}
+	}
+
 	function addNewSite() {
 		const trimmed = siteName.trim();
 		if (!trimmed) return;
@@ -109,7 +124,9 @@
 			return;
 		}
 
-		const newSite = addSite(trimmed);
+		const selectedCharset = settings.charsets.find((c) => c.name === newSiteCharset);
+		const charsetChars = selectedCharset?.chars ?? '';
+		const newSite = addSite(trimmed, newSiteLength, charsetChars);
 		selectedId = newSite!.id;
 		showSuccess();
 		siteName = '';
@@ -232,6 +249,19 @@
 		charsetSuccess = '';
 		renamingCharset = null;
 		deleteCharsetTarget = null;
+		deleteCharsetError = '';
+	}
+
+	function handleDefaultCharsetChange(e: Event) {
+		const target = e.target as HTMLSelectElement;
+		const newSettings = { ...settings, defaultCharset: target.value };
+		setSettings(newSettings);
+	}
+
+	function handleDefaultLengthChange(e: Event) {
+		const target = e.target as HTMLSelectElement;
+		const newSettings = { ...settings, defaultLength: Number(target.value) };
+		setSettings(newSettings);
 	}
 
 	function createCharset() {
@@ -261,23 +291,37 @@
 
 	function startRename(name: string) {
 		renamingCharset = name;
-		renameValue = name;
+		renamingTo = name;
 	}
 
 	function confirmRename() {
 		if (!renamingCharset) return;
 		const trimmed = renamingTo.trim();
-		if (!trimmed) return;
+		if (!trimmed || trimmed === renamingCharset) {
+			renamingCharset = null;
+			renamingTo = '';
+			return;
+		}
 		renameCharset(renamingCharset, trimmed);
 		renamingCharset = null;
-		renameValue = '';
 		renamingTo = '';
 	}
 
 	function cancelRename() {
 		renamingCharset = null;
-		renameValue = '';
 		renamingTo = '';
+	}
+
+	function getUsingSites(charsetChars: string) {
+		return getSites().filter((s) => s.charset === charsetChars);
+	}
+
+	function getCharsetDeleteTitle(charset: Charset): string {
+		const usingSites = getUsingSites(charset.chars);
+		return `"${charset.name}" is in use by ${usingSites
+			.slice(0, 2)
+			.map((s) => s.name)
+			.join(', ')}${usingSites.length > 2 ? ` and ${usingSites.length - 2} others` : ''}`;
 	}
 
 	function startDelete(name: string) {
@@ -286,7 +330,13 @@
 
 	function confirmDelete() {
 		if (!deleteCharsetTarget) return;
-		deleteCharset(deleteCharsetTarget);
+		const result = deleteCharset(deleteCharsetTarget);
+		if (!result) {
+			deleteCharsetError = `Cannot delete "${deleteCharsetTarget}" — it is still in use by one or more sites.`;
+			setTimeout(() => {
+				deleteCharsetError = '';
+			}, 4000);
+		}
 		deleteCharsetTarget = null;
 	}
 
@@ -381,11 +431,32 @@
 				placeholder="Enter new site name"
 				onkeypress={(e) => e.key === 'Enter' && addNewSite()}
 			/>
+			<select
+				value={newSiteCharset}
+				onchange={(e) => (newSiteCharset = (e.target as HTMLSelectElement).value)}
+			>
+				{#each settings.charsets as charset}
+					<option value={charset.name}>{charset.name}</option>
+				{/each}
+			</select>
+			<select
+				value={newSiteLength}
+				onchange={(e) => (newSiteLength = Number((e.target as HTMLSelectElement).value))}
+			>
+				{#each Array.from({ length: 32 }, (_, i) => i + 1) as len}
+					<option value={len}>{len}</option>
+				{/each}
+			</select>
 			<button onclick={addNewSite}>Add</button>
 		</div>
 
 		<div class="filter-input">
-			<input type="text" bind:value={filterText} placeholder="Filter sites..." />
+			<input
+				type="text"
+				bind:value={filterText}
+				placeholder="Filter sites..."
+				onkeypress={(e) => e.key === 'Enter' && selectFirstFiltered()}
+			/>
 		</div>
 
 		{#if sites.length === 0}
@@ -512,8 +583,13 @@
 								charsetSuccess = '';
 							}}>Charsets</button
 						>
-						<button class="tab-btn{activeTab === 'settings' ? ' active' : ''}" disabled
-							>Settings</button
+						<button
+							class="tab-btn{activeTab === 'defaults' ? ' active' : ''}"
+							onclick={() => {
+								activeTab = 'defaults';
+								charsetError = '';
+								charsetSuccess = '';
+							}}>Defaults</button
 						>
 					</div>
 
@@ -550,6 +626,12 @@
 					{/if}
 
 					{#if activeTab === 'charsets'}
+						{#if deleteCharsetError}
+							<div class="charset-section">
+								<p class="error">{deleteCharsetError}</p>
+							</div>
+						{/if}
+
 						<div class="charset-section">
 							<h3>Create Charset</h3>
 							<div class="charset-form">
@@ -575,7 +657,7 @@
 								<div class="charset-item">
 									<span class="charset-name">
 										{#if renamingCharset === charset.name}
-											<input type="text" bind:value={renameValue} class="rename-input" />
+											<input type="text" bind:value={renamingTo} class="rename-input" />
 										{:else}
 											<span class="name-text">{charset.name}</span>
 										{/if}
@@ -599,9 +681,19 @@
 											<button onclick={() => startRename(charset.name)} class="charset-action-btn"
 												>Rename</button
 											>
-											<button onclick={() => startDelete(charset.name)} class="charset-delete-btn"
-												>Delete</button
-											>
+											{#if charsetIsUsed(charset.name)}
+												<button
+													class="charset-delete-btn"
+													disabled
+													title={getCharsetDeleteTitle(charset)}
+												>
+													Delete
+												</button>
+											{:else}
+												<button onclick={() => startDelete(charset.name)} class="charset-delete-btn"
+													>Delete</button
+												>
+											{/if}
 										</div>
 									{/if}
 								</div>
@@ -623,6 +715,32 @@
 								</div>
 							</div>
 						{/if}
+					{/if}
+
+					{#if activeTab === 'defaults'}
+						<div class="defaults-section">
+							<h3>Default Charset</h3>
+							<select value={defaultCharset} onchange={handleDefaultCharsetChange}>
+								{#each settings.charsets as charset}
+									<option value={charset.name}>{charset.name}</option>
+								{/each}
+							</select>
+							<p class="setting-desc" style="margin-top: 0.5rem;">
+								The charset used when adding a new site.
+							</p>
+						</div>
+
+						<div class="defaults-section">
+							<h3>Default Length</h3>
+							<select value={defaultLength} onchange={handleDefaultLengthChange}>
+								{#each Array.from({ length: 32 }, (_, i) => i + 1) as len}
+									<option value={len}>{len}</option>
+								{/each}
+							</select>
+							<p class="setting-desc" style="margin-top: 0.5rem;">
+								The password length used when adding a new site.
+							</p>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -1134,8 +1252,14 @@
 		transition: all 0.2s;
 	}
 
-	.charset-delete-btn:hover {
+	.charset-delete-btn:hover:not(:disabled) {
 		color: var(--danger-hover);
+	}
+
+	.charset-delete-btn:disabled {
+		cursor: not-allowed;
+		color: var(--text-secondary);
+		opacity: 0.4;
 	}
 
 	.rename-input {
@@ -1155,6 +1279,34 @@
 		background: var(--bg-secondary);
 		border-radius: var(--radius);
 		border: 1px solid var(--border);
+	}
+
+	.defaults-section {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.defaults-section:last-of-type {
+		border-bottom: none;
+		padding-bottom: 0;
+		margin-bottom: 0;
+	}
+
+	.defaults-section h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		margin-bottom: 0.75rem;
+	}
+
+	.defaults-section select {
+		width: 100%;
+		padding: 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--bg);
+		color: var(--text);
+		font-size: 1rem;
 	}
 
 	.charset-delete-confirm p {

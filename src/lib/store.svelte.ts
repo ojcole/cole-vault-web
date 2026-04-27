@@ -15,6 +15,8 @@ export interface Charset {
 export interface AppSettings {
 	dark: boolean;
 	charsets: Charset[];
+	defaultCharset?: string;
+	defaultLength?: number;
 }
 
 export interface Config {
@@ -58,6 +60,39 @@ const defaultConfig: Config = {
 	sites: defaultSites
 };
 
+const charsetExistsIn = (charsets: Charset[], chars: string): boolean => {
+	return charsets.some((c) => c.chars === chars);
+};
+
+const charsetByNameIn = (charsets: Charset[], name: string): Charset | undefined => {
+	return charsets.find((c) => c.name === name);
+};
+
+const fixOrphanedCharsets = (config: Config) => {
+	const charsets = config.settings.charsets;
+	let counter = 1;
+	// Find the highest existing "Custom Charset N" number
+	for (const cs of charsets) {
+		const match = cs.name.match(/^Custom Charset (\d+)$/);
+		if (match) {
+			const num = parseInt(match[1], 10);
+			if (num >= counter) counter = num + 1;
+		}
+	}
+	for (const site of config.sites) {
+		if (!site.charset) continue;
+		if (!charsetExistsIn(charsets, site.charset)) {
+			let uniqueName = `Custom Charset ${counter}`;
+			while (charsetByNameIn(charsets, uniqueName)) {
+				counter++;
+				uniqueName = `Custom Charset ${counter}`;
+			}
+			charsets.push({ name: uniqueName, chars: site.charset });
+			counter++;
+		}
+	}
+};
+
 const loadConfig = (): Config => {
 	try {
 		const stored = localStorage.getItem(STORE_KEY);
@@ -69,6 +104,7 @@ const loadConfig = (): Config => {
 				if (!Array.isArray(config.settings.charsets)) {
 					config.settings.charsets = [...defaultCharsets];
 				}
+				fixOrphanedCharsets(config);
 				return config;
 			}
 		}
@@ -118,7 +154,9 @@ export const getSites = (): Site[] => config.sites;
 
 export const getSettings = (): AppSettings => ({
 	...config.settings,
-	charsets: [...(config.settings.charsets ?? defaultCharsets)]
+	charsets: [...(config.settings.charsets ?? defaultCharsets)],
+	defaultCharset: config.settings.defaultCharset ?? config.settings.charsets?.[0]?.name,
+	defaultLength: config.settings.defaultLength ?? 32
 });
 
 const inc = () => {
@@ -147,32 +185,53 @@ export const addCharset = (name: string, chars: string): Charset | null => {
 	return newCharset;
 };
 
-export const deleteCharset = (name: string) => {
+export const charsetIsUsed = (name: string): boolean => {
+	const charset = config.settings.charsets.find((c) => c.name === name);
+	if (!charset) return false;
+	return config.sites.some((s) => s.charset === charset.chars);
+};
+
+export const deleteCharset = (name: string): boolean => {
+	if (charsetIsUsed(name)) {
+		return false;
+	}
 	config.settings.charsets = config.settings.charsets.filter((c) => c.name !== name);
 	inc();
 	saveConfig(config);
+	return true;
 };
 
 export const renameCharset = (oldName: string, newName: string) => {
 	const index = config.settings.charsets.findIndex((c) => c.name === oldName);
 	if (index !== -1) {
 		config.settings.charsets[index].name = newName;
+		if (config.settings.defaultCharset === oldName) {
+			config.settings.defaultCharset = newName;
+		}
 		inc();
 		saveConfig(config);
 	}
 };
 
-export const addSite = (siteName: string): Site | null => {
+export const addSite = (siteName: string, length?: number, charsetChars?: string): Site | null => {
 	const existing = config.sites.find((s) => s.name.toLowerCase() === siteName.toLowerCase());
 	if (existing) {
 		return existing;
 	}
 
+	const selectedCharset = charsetChars
+		? charsetChars
+		: config.settings.defaultCharset
+			? (config.settings.charsets?.find((c) => c.name === config.settings.defaultCharset)?.chars ??
+				config.settings.charsets?.[0]?.chars ??
+				'')
+			: (config.settings.charsets?.[0]?.chars ?? '');
+
 	const newSite: Site = {
 		id: ++nextId,
 		name: siteName,
-		length: 32,
-		charset: config.settings.charsets?.[0]?.chars ?? ''
+		length: Math.max(1, Math.min(32, length ?? config.settings.defaultLength ?? 32)),
+		charset: selectedCharset
 	};
 
 	config.sites.push(newSite);
@@ -238,14 +297,52 @@ export const importSites = (jsonString: string): Config => {
 		const parsed = JSON.parse(jsonString);
 		if (parsed && Array.isArray(parsed.sites)) {
 			const imported = migrateConfig(parsed as Record<string, unknown>);
-			const importedSites = imported.sites.map((s, i) => {
-				const id = typeof s.id === 'number' && s.id > 0 ? s.id : ++nextId;
-				if (Number.isInteger(id) && id > nextId) nextId = id;
-				return { ...s, id };
-			});
+
+			// Override settings with imported settings
 			config.version = SCHEMA_VERSION;
 			config.settings = imported.settings || defaultSettings;
-			config.sites = importedSites;
+
+			// Merge charsets: deduplicate by `chars`, imported overwrites existing name
+			const importedCharsets = imported.settings?.charsets || [];
+			const existingCharsets = config.settings.charsets || [];
+			const charsetByChars = new Map<string, Charset>();
+			for (const cs of existingCharsets) {
+				charsetByChars.set(cs.chars, cs);
+			}
+			for (const cs of importedCharsets) {
+				const existing = charsetByChars.get(cs.chars);
+				if (existing) {
+					existing.name = cs.name;
+				} else {
+					charsetByChars.set(cs.chars, { ...cs });
+				}
+			}
+			config.settings.charsets = Array.from(charsetByChars.values());
+
+			// Merge sites: deduplicate by name (case-insensitive), imported overwrites existing
+			const importedSites = imported.sites.map((s) => {
+				let id = s.id;
+				if (typeof id !== 'number' || id <= 0) {
+					id = ++nextId;
+				}
+				if (Number.isInteger(id) && id > nextId) {
+					nextId = id;
+				}
+				return { ...s, id };
+			});
+			const existingSites = new Map<string, Site>();
+			for (const site of config.sites) {
+				existingSites.set(site.name.toLowerCase(), site);
+			}
+			for (const site of importedSites) {
+				existingSites.set(site.name.toLowerCase(), site);
+			}
+			config.sites = Array.from(existingSites.values());
+			config.sites.sort((a, b) => compareSites(a, b));
+
+			// Recreate any charsets that sites reference but aren't in the merged list
+			fixOrphanedCharsets(config);
+
 			inc();
 			saveConfig(config);
 			return config;
