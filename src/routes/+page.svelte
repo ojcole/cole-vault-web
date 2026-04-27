@@ -1199,6 +1199,7 @@
 	}
 
 	.site-section {
+		margin-top: 1.5rem;
 		margin-bottom: 2rem;
 	}
 
