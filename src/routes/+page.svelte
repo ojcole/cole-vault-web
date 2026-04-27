@@ -1010,6 +1010,7 @@
 			font-size: 1.25rem;
 			letter-spacing: 0.06em;
 			word-break: break-all;
+			overflow-wrap: anywhere;
 		}
 
 		.password-actions {
@@ -1315,6 +1316,7 @@
 		letter-spacing: 0.1em;
 		margin-bottom: 1rem;
 		word-break: break-all;
+		overflow-wrap: anywhere;
 		user-select: all;
 	}
 
