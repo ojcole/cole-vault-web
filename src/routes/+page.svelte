@@ -462,77 +462,85 @@
 		{#if sites.length === 0}
 			<p class="empty-message">No sites added yet. Add a site above to get started.</p>
 		{:else}
-			<table>
-				<thead>
-					<tr>
-						<th></th>
-						<th>Site</th>
-						<th>Length</th>
-						<th>Charset</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each filteredSites as site (site.id)}
-						<tr class:selected={selectedId === site.id}>
-							<td>
-								<input
-									type="radio"
-									name="site"
-									checked={selectedId === site.id}
-									onchange={() => (selectedId = site.id)}
-								/>
-							</td>
-							<td>{site.name}</td>
-							<td>
-								<select
-									value={site.length}
-									onchange={(e) =>
-										updateSite(site.id, { length: Number((e.target as HTMLSelectElement).value) })}
-								>
-									{#each Array.from({ length: 32 }, (_, i) => i + 1) as len, _i (len)}
-										<option value={len}>{len}</option>
-									{/each}
-								</select>
-							</td>
-							<td>
-								<select
-									value={getCharsetCharsetName(site.charset)}
-									onchange={(e) => {
-										const target = e.target as HTMLSelectElement;
-										const selected = settings.charsets.find((c) => c.name === target?.value);
-										if (selected) {
-											updateSite(site.id, { charset: selected.chars });
-										}
-									}}
-									title="Select charset"
-								>
-									{#each settings.charsets as charset}
-										<option value={charset.name}>{charset.name}</option>
-									{/each}
-								</select>
-							</td>
-							<td>
-								<button class="delete-btn" onclick={() => removeSite(site.id)} title="Delete site">
-									<svg
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-									>
-										<polyline points="3 6 5 6 21 6" />
-										<path
-											d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-										/>
-									</svg>
-								</button>
-							</td>
+			<div class="table-wrapper">
+				<table>
+					<thead>
+						<tr>
+							<th></th>
+							<th>Site</th>
+							<th>Length</th>
+							<th>Charset</th>
+							<th></th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each filteredSites as site (site.id)}
+							<tr class:selected={selectedId === site.id}>
+								<td>
+									<input
+										type="radio"
+										name="site"
+										checked={selectedId === site.id}
+										onchange={() => (selectedId = site.id)}
+									/>
+								</td>
+								<td>{site.name}</td>
+								<td class="three-column-select">
+									<select
+										value={site.length}
+										onchange={(e) =>
+											updateSite(site.id, {
+												length: Number((e.target as HTMLSelectElement).value)
+											})}
+									>
+										{#each Array.from({ length: 32 }, (_, i) => i + 1) as len, _i (len)}
+											<option value={len}>{len}</option>
+										{/each}
+									</select>
+								</td>
+								<td class="three-column-select">
+									<select
+										value={getCharsetCharsetName(site.charset)}
+										onchange={(e) => {
+											const target = e.target as HTMLSelectElement;
+											const selected = settings.charsets.find((c) => c.name === target?.value);
+											if (selected) {
+												updateSite(site.id, { charset: selected.chars });
+											}
+										}}
+										title="Select charset"
+									>
+										{#each settings.charsets as charset}
+											<option value={charset.name}>{charset.name}</option>
+										{/each}
+									</select>
+								</td>
+								<td>
+									<button
+										class="delete-btn"
+										onclick={() => removeSite(site.id)}
+										title="Delete site"
+									>
+										<svg
+											width="16"
+											height="16"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+										>
+											<polyline points="3 6 5 6 21 6" />
+											<path
+												d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+											/>
+										</svg>
+									</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
 	</section>
 
@@ -568,7 +576,10 @@
 			onclick={(e) => e.target === e.currentTarget && closeSettings()}
 			onkeydown={(e) => e.key === 'Escape' && closeSettings()}
 		>
-			<div class="modal data-modal">
+			<div
+				class="modal data-modal"
+				onkeydown={(e) => e.key === 'Escape' && closeSettings()}
+			>
 				<div class="data-content">
 					<div class="tab-header">
 						<button
@@ -884,8 +895,175 @@
 	}
 
 	@media (max-width: 600px) {
+		.app {
+			padding: 1rem 0.75rem;
+		}
+
+		header {
+			margin-bottom: 1.5rem;
+			padding-bottom: 0.75rem;
+		}
+
+		header h1 {
+			font-size: 1.5rem;
+		}
+
 		.input-section {
 			grid-template-columns: 1fr;
+			gap: 0.75rem;
+			margin-bottom: 1rem;
+		}
+
+		.site-input {
+			flex-direction: column;
+		}
+
+		.site-input input,
+		.site-input select,
+		.site-input button {
+			width: 100%;
+		}
+
+		.filter-input input {
+			width: 100%;
+		}
+
+		.table-wrapper {
+			overflow-x: auto;
+			-webkit-overflow-scrolling: touch;
+		}
+
+		table {
+			min-width: 500px;
+		}
+
+		.three-column-select {
+			min-width: unset;
+		}
+
+		.three-column-select select {
+			min-width: 0;
+		}
+
+		.password-display {
+			font-size: 1.125rem;
+			letter-spacing: 0.05em;
+		}
+
+		.password-actions {
+			flex-direction: column;
+		}
+
+		.toggle-visibility,
+		.copy-btn {
+			width: 100%;
+		}
+
+		.result-section {
+			padding: 1.5rem 1rem;
+		}
+
+		.tab-header {
+			flex-wrap: wrap;
+		}
+
+		.tab-btn {
+			flex: 1 1 auto;
+			min-width: 80px;
+			padding: 0.625rem 0.5rem;
+			font-size: 0.8rem;
+		}
+
+		.data-content {
+			padding: 1rem;
+		}
+
+		.charset-form {
+			flex-direction: column;
+		}
+
+		.charset-form input,
+		.charset-form button {
+			width: 100%;
+		}
+
+		.charset-item {
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+
+		.charset-name {
+			min-width: 80px;
+			flex-basis: 100%;
+		}
+
+		.file-button {
+			width: 100%;
+			text-align: center;
+		}
+
+		.file-label {
+			display: block;
+		}
+
+		.purge-confirm-content {
+			padding: 1.5rem 1rem;
+		}
+
+		.purge-confirm-actions {
+			flex-direction: column;
+		}
+
+		.cancel-purge-btn,
+		.confirm-purge-btn {
+			width: 100%;
+			text-align: center;
+		}
+
+		.modal {
+			max-height: 90vh;
+			margin: 0.5rem;
+		}
+
+		.modal-overlay {
+			padding: 0.5rem;
+		}
+
+		.defaults-section select {
+			width: 100%;
+		}
+
+		.charset-delete-confirm {
+			margin-top: 0.75rem;
+			padding: 0.75rem;
+		}
+
+		.charset-delete-actions {
+			flex-direction: column;
+		}
+
+		.charset-delete-actions button {
+			width: 100%;
+			text-align: center;
+		}
+
+		.rename-actions {
+			flex-direction: column;
+			width: 100%;
+		}
+
+		.rename-actions button {
+			width: 100%;
+			text-align: center;
+		}
+
+		.tooltip {
+			bottom: 1rem;
+			left: 1rem;
+			right: 1rem;
+			transform: none;
+			text-align: center;
+			font-size: 0.875rem;
 		}
 	}
 
@@ -1091,12 +1269,15 @@
 		max-width: 800px;
 		width: 100%;
 		max-height: 80vh;
-		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 		box-shadow: 0 10px 40px var(--shadow);
 	}
 
 	.data-content {
 		padding: 1.5rem 2rem;
+		overflow-y: auto;
+		flex: 1;
 	}
 
 	.tab-header {
