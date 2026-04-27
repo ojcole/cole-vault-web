@@ -80,6 +80,17 @@
 	});
 
 	$effect(() => {
+		if (!showSettings) return;
+
+		function handleKey(e: KeyboardEvent) {
+			if (e.key === 'Escape') closeSettings();
+		}
+
+		document.addEventListener('keydown', handleKey);
+		return () => document.removeEventListener('keydown', handleKey);
+	});
+
+	$effect(() => {
 		const site = selectedId !== null ? getSiteById(selectedId) : null;
 		const master = combinePasswords(master1, master2);
 		const syms = site?.charset ?? '';
