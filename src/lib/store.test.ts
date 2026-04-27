@@ -278,4 +278,34 @@ describe('store', () => {
 		expect(store2.getSites().length).toBe(1);
 		expect(store2.getSites()[0].name).toBe('test-site');
 	});
+
+	it('imported sites with id=0 get unique auto-assigned IDs', async () => {
+		const store = await loadStore();
+
+		const json = JSON.stringify({
+			sites: [
+				{ site: 'site-a', length: 32, limitedCharset: false },
+				{ site: 'site-b', length: 24, limitedCharset: true },
+				{ site: 'site-c', length: 16, limitedCharset: false }
+			],
+			exportDate: '2025-01-01',
+			version: '1.0'
+		});
+
+		store.importSites(json);
+		const sites = store.getSites();
+
+		expect(sites.length).toBe(3);
+		expect(sites[0].id).not.toBe(0);
+		expect(sites[1].id).not.toBe(0);
+		expect(sites[2].id).not.toBe(0);
+		expect(sites[0].id).not.toBe(sites[1].id);
+		expect(sites[1].id).not.toBe(sites[2].id);
+		expect(sites[0].id).not.toBe(sites[2].id);
+	});
+
+	it('purgeData is exported', async () => {
+		const store = await loadStore();
+		expect(typeof store.purgeData).toBe('function');
+	});
 });

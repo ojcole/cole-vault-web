@@ -5,18 +5,19 @@
 		symbols,
 		limitedSymbols
 	} from '$lib/password-generation';
-import {
-	getSites,
-	getSettings,
-	addSite,
-	removeSite,
-	updateSite,
-	getSiteById,
-	exportSites,
-	importSites,
-	setSettings,
-	versionStore
-} from '$lib/store.svelte';
+	import {
+		getSites,
+		getSettings,
+		addSite,
+		removeSite,
+		updateSite,
+		getSiteById,
+		exportSites,
+		importSites,
+		setSettings,
+		versionStore,
+		purgeData
+	} from '$lib/store.svelte';
 	import type { Site } from '$lib/store.svelte';
 	import { onDestroy } from 'svelte';
 
@@ -31,12 +32,17 @@ import {
 	let copyTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 	let resetTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 	let darkMode = $state(false);
-	let showImportDialog = $state(false);
+	let showSettings = $state(false);
+	let activeTab = $state('data');
 	let showPassword = $state(false);
-	let importText = $state('');
 	let importError = $state('');
+	let importSuccess = $state(false);
 	let showTooltip = $state(false);
 	let tooltipTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+	let showPurgeConfirm = $state(false);
+	let purgeCountdown = $state(3);
+	let purgeTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+	let purgeCountdownTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
 	const SHORT_WAIT = 2000;
 	const LONG_WAIT = 10000;
@@ -90,14 +96,14 @@ import {
 
 		if (existing) {
 			selectedId = existing.id;
-			showSuccess(); // Site already exists
+			showSuccess();
 			siteName = '';
 			return;
 		}
 
 		const newSite = addSite(trimmed);
 		selectedId = newSite!.id;
-		showSuccess(); // Site added
+		showSuccess();
 		siteName = '';
 	}
 
@@ -123,22 +129,36 @@ import {
 				master2 = '';
 			}, SHORT_WAIT);
 
-			resetTimer = setTimeout(() => {
-				// Clipboard cleared after timeout
-			}, LONG_WAIT);
+			resetTimer = setTimeout(() => {}, LONG_WAIT);
 		});
 	}
 
-	function handleImport() {
+	function handleFileImport(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+
 		importError = '';
-		try {
-			importSites(importText);
-			showSuccess('Sites imported!');
-			showImportDialog = false;
-			importText = '';
-		} catch {
-			importError = 'Invalid import data';
-		}
+		importSuccess = false;
+
+		const reader = new FileReader();
+		reader.onload = (e) => {
+			const text = e.target?.result as string;
+			try {
+				importSites(text);
+				importSuccess = true;
+				showSuccess('Sites imported!');
+				showSettings = false;
+			} catch {
+				importError = 'Invalid import data';
+			}
+			target.value = '';
+		};
+		reader.onerror = () => {
+			importError = 'Failed to read file';
+			target.value = '';
+		};
+		reader.readAsText(file);
 	}
 
 	function handleExport() {
@@ -151,16 +171,59 @@ import {
 		URL.revokeObjectURL(url);
 	}
 
-	function toggleImportDialog() {
-		showImportDialog = !showImportDialog;
+	function openSettings() {
+		showSettings = true;
 		importError = '';
-		importText = '';
+		importSuccess = false;
+		activeTab = 'data';
+	}
+
+	function openPurgeConfirm() {
+		showPurgeConfirm = true;
+		purgeCountdown = 3;
+		clearTimeout(purgeTimer);
+		clearInterval(purgeCountdownTimer);
+		purgeCountdownTimer = setInterval(() => {
+			purgeCountdown--;
+			if (purgeCountdown <= 0) {
+				clearInterval(purgeCountdownTimer);
+				purgeCountdownTimer = null;
+			}
+		}, 1000);
+	}
+
+	function confirmPurge() {
+		if (purgeCountdown > 0) return;
+		clearTimeout(purgeTimer);
+		clearInterval(purgeCountdownTimer);
+		purgeTimer = null;
+		purgeCountdownTimer = null;
+		showPurgeConfirm = false;
+		purgeData();
+	}
+
+	function cancelPurge() {
+		clearTimeout(purgeTimer);
+		clearInterval(purgeCountdownTimer);
+		purgeTimer = null;
+		purgeCountdownTimer = null;
+		showPurgeConfirm = false;
+	}
+
+	function closeSettings() {
+		showSettings = false;
+		clearTimeout(purgeTimer);
+		clearInterval(purgeCountdownTimer);
+		purgeTimer = null;
+		purgeCountdownTimer = null;
 	}
 
 	onDestroy(() => {
 		clearTimeout(copyTimer);
 		clearTimeout(resetTimer);
 		clearTimeout(tooltipTimer);
+		clearTimeout(purgeTimer);
+		clearInterval(purgeCountdownTimer);
 	});
 </script>
 
@@ -168,20 +231,9 @@ import {
 	<header>
 		<h1>Cole Vault</h1>
 		<div class="header-actions">
-			<button
-				class="icon-btn"
-				onclick={() => setSettings({ dark: !darkMode })}
-				title="Toggle theme"
-			>
+			<button class="settings-btn" onclick={() => setSettings({ dark: !darkMode })} title="Toggle theme">
 				{#if darkMode}
-					<svg
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-					>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<circle cx="12" cy="12" r="5" />
 						<line x1="12" y1="1" x2="12" y2="3" />
 						<line x1="12" y1="21" x2="12" y2="23" />
@@ -193,44 +245,15 @@ import {
 						<line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
 					</svg>
 				{:else}
-					<svg
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-					>
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
 					</svg>
 				{/if}
 			</button>
-			<button class="icon-btn" onclick={handleExport} title="Export Sites">
-				<svg
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-				>
-					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-					<polyline points="7 10 12 15 17 10" />
-					<line x1="12" y1="15" x2="12" y2="3" />
-				</svg>
-			</button>
-			<button class="icon-btn" onclick={toggleImportDialog} title="Import Sites">
-				<svg
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-				>
-					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-					<polyline points="17 8 12 3 7 8" />
-					<line x1="12" y1="3" x2="12" y2="15" />
+			<button class="settings-btn" onclick={openSettings} title="Settings">
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="3" />
+					<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
 				</svg>
 			</button>
 		</div>
@@ -249,12 +272,7 @@ import {
 
 	<section class="site-section">
 		<div class="site-input">
-			<input
-				type="text"
-				bind:value={siteName}
-				placeholder="Enter new site name"
-				onkeypress={(e) => e.key === 'Enter' && addNewSite()}
-			/>
+			<input type="text" bind:value={siteName} placeholder="Enter new site name" onkeypress={(e) => e.key === 'Enter' && addNewSite()} />
 			<button onclick={addNewSite}>Add</button>
 		</div>
 
@@ -279,52 +297,26 @@ import {
 					{#each filteredSites as site (site.id)}
 						<tr class:selected={selectedId === site.id}>
 							<td>
-								<input
-									type="radio"
-									name="site"
-									checked={selectedId === site.id}
-									onchange={() => (selectedId = site.id)}
-								/>
+								<input type="radio" name="site" checked={selectedId === site.id} onchange={() => (selectedId = site.id)} />
 							</td>
 							<td>{site.name}</td>
 							<td>
-								<select
-									value={site.length}
-									onchange={(e) => updateSite(site.id, { length: Number(e.target.value) })}
-								>
+								<select value={site.length} onchange={(e) => updateSite(site.id, { length: Number(e.target.value) })}>
 									{#each Array.from({ length: 32 }, (_, i) => i + 1) as len, _i (len)}
 										<option value={len}>{len}</option>
 									{/each}
 								</select>
 							</td>
 							<td>
-								<button
-									class="charset-btn"
-									onclick={() =>
-										updateSite(site.id, {
-											limitedCharset: !site.limitedCharset
-										})}
-									title={site.limitedCharset
-										? 'Limited charset (alphanumeric)'
-										: 'Full ASCII charset'}
-								>
+								<button class="charset-btn" onclick={() => updateSite(site.id, { limitedCharset: !site.limitedCharset })} title={site.limitedCharset ? 'Limited charset (alphanumeric)' : 'Full ASCII charset'}>
 									{site.limitedCharset ? 'Aa1' : 'Aa1!'}
 								</button>
 							</td>
 							<td>
 								<button class="delete-btn" onclick={() => removeSite(site.id)} title="Delete site">
-									<svg
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-									>
+									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<polyline points="3 6 5 6 21 6" />
-										<path
-											d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-										/>
+										<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
 									</svg>
 								</button>
 							</td>
@@ -337,16 +329,8 @@ import {
 
 	{#if generatedPassword}
 		<section class="result-section">
-			<div
-				class="password-display"
-				style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}"
-			>
-				{showPassword
-					? generatedPassword
-					: generatedPassword
-							.split('')
-							.map(() => '•')
-							.join('')}
+			<div class="password-display" style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}">
+				{showPassword ? generatedPassword : generatedPassword.split('').map(() => '•').join('')}
 			</div>
 			<div class="password-actions">
 				<button class="toggle-visibility" onclick={() => (showPassword = !showPassword)}>
@@ -359,24 +343,65 @@ import {
 		</section>
 	{/if}
 
-	{#if showImportDialog}
-		<div
-			class="modal-overlay"
-			role="presentation"
-			tabindex="-1"
-			onclick={(e) => e.target === e.currentTarget && (showImportDialog = false)}
-			onkeydown={(e) => e.key === 'Escape' && (showImportDialog = false)}
-		>
-			<div class="modal">
-				<h2>Import Sites</h2>
-				<textarea bind:value={importText} placeholder="Paste exported JSON here..." rows="10"
-				></textarea>
-				{#if importError}
-					<p class="error">{importError}</p>
-				{/if}
-				<div class="modal-actions">
-					<button onclick={handleImport} class="primary-btn">Import</button>
-					<button onclick={toggleImportDialog}>Cancel</button>
+	{#if showSettings}
+		<div class="modal-overlay" role="presentation" tabindex="-1" onclick={(e) => e.target === e.currentTarget && closeSettings()} onkeydown={(e) => e.key === 'Escape' && closeSettings()}>
+			<div class="modal data-modal">
+				<div class="data-content">
+					<div class="tab-header">
+						<button class="tab-btn{activeTab === 'data' ? ' active' : ''}" onclick={() => activeTab = 'data'}>Data</button>
+						<button class="tab-btn{activeTab === 'charsets' ? ' active' : ''}" disabled>Charsets</button>
+						<button class="tab-btn{activeTab === 'settings' ? ' active' : ''}" disabled>Settings</button>
+					</div>
+
+					{#if activeTab === 'data'}
+						<div class="data-section">
+							<h3>Import</h3>
+							<label class="file-label">
+								<input type="file" accept=".json" onchange={handleFileImport} class="file-input" />
+								<span class="file-button">Choose File</span>
+							</label>
+							{#if importError}
+								<p class="error">{importError}</p>
+							{/if}
+							{#if importSuccess}
+								<p class="success">Sites imported successfully!</p>
+							{/if}
+						</div>
+
+						<div class="data-section">
+							<h3>Export</h3>
+							<button onclick={handleExport} class="export-btn">Export Sites</button>
+							<p class="setting-desc" style="margin-top: 0.75rem;">Download all your sites and settings as a JSON file.</p>
+						</div>
+
+						<div class="data-section purge-section">
+							<h3 style="color: var(--danger);">Purge</h3>
+							<button onclick={openPurgeConfirm} class="purge-btn">Purge Everything</button>
+							<p class="setting-desc" style="margin-top: 0.75rem; color: var(--danger);">This will permanently delete all your data. This cannot be undone.</p>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if showPurgeConfirm}
+		<div class="modal-overlay" role="presentation" tabindex="-1" onclick={(e) => e.target === e.currentTarget && cancelPurge()} onkeydown={(e) => e.key === 'Escape' && cancelPurge()}>
+			<div class="modal purge-confirm-modal">
+				<div class="purge-confirm-content">
+					<h2 style="color: var(--danger);">Confirm Purge</h2>
+					<p style="margin-bottom: 1rem;">This will permanently delete all your data. This cannot be undone.</p>
+					<p class="countdown-text">
+						{#if purgeCountdown > 0}
+							Please wait <strong>{purgeCountdown}</strong> seconds...
+						{:else}
+							You may now confirm the purge.
+						{/if}
+					</p>
+					<div class="purge-confirm-actions">
+						<button onclick={cancelPurge} class="cancel-purge-btn">Cancel</button>
+						<button onclick={confirmPurge} class="confirm-purge-btn" disabled={purgeCountdown > 0}>Confirm Purge</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -462,7 +487,7 @@ import {
 		gap: 0.5rem;
 	}
 
-	.icon-btn {
+	.settings-btn {
 		background: var(--bg-secondary);
 		border: 1px solid var(--border);
 		border-radius: var(--radius);
@@ -475,7 +500,7 @@ import {
 		transition: all 0.2s;
 	}
 
-	.icon-btn:hover {
+	.settings-btn:hover {
 		background: var(--bg-hover);
 	}
 
@@ -506,7 +531,6 @@ import {
 
 	input,
 	select,
-	textarea,
 	button {
 		font-family: inherit;
 		font-size: 1rem;
@@ -523,8 +547,7 @@ import {
 	}
 
 	input:focus,
-	select:focus,
-	textarea:focus {
+	select:focus {
 		outline: none;
 		border-color: var(--primary);
 		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -546,7 +569,8 @@ import {
 
 	.site-input button,
 	.copy-btn,
-	.primary-btn {
+	.export-btn,
+	.purge-btn {
 		padding: 0.75rem 1.5rem;
 		background: var(--primary);
 		color: white;
@@ -559,8 +583,12 @@ import {
 
 	.site-input button:hover,
 	.copy-btn:hover,
-	.primary-btn:hover {
+	.export-btn:hover {
 		background: var(--primary-hover);
+	}
+
+	.purge-btn:hover {
+		background: var(--danger-hover);
 	}
 
 	.filter-input {
@@ -703,51 +731,121 @@ import {
 	.modal {
 		background: var(--bg);
 		border-radius: var(--radius);
-		padding: 2rem;
-		max-width: 600px;
+		padding: 0;
+		max-width: 500px;
 		width: 100%;
 		max-height: 80vh;
-		overflow-y: auto;
+		overflow: hidden;
 		box-shadow: 0 10px 40px var(--shadow);
 	}
 
-	.modal h2 {
-		margin-bottom: 1rem;
+	.data-content {
+		padding: 1.5rem 2rem;
 	}
 
-	.modal textarea {
-		width: 100%;
-		padding: 0.75rem;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--bg);
-		color: var(--text);
-		font-family: 'Courier New', monospace;
-		font-size: 0.875rem;
-		resize: vertical;
-	}
-
-	.modal-actions {
+	.tab-header {
 		display: flex;
-		gap: 0.5rem;
-		justify-content: flex-end;
-		margin-top: 1rem;
+		border-bottom: 2px solid var(--border);
+		margin-bottom: 1.25rem;
 	}
 
-	.modal-actions button:last-child {
-		background: var(--bg-secondary);
+	.tab-btn {
+		flex: 1;
+		padding: 0.75rem 1rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		border-radius: 0;
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		transition: all 0.2s;
+	}
+
+	.tab-btn:hover:not(:disabled) {
 		color: var(--text);
-		border: 1px solid var(--border);
+		background: var(--bg-secondary);
 	}
 
-	.modal-actions button:last-child:hover {
-		background: var(--bg-hover);
+	.tab-btn.active {
+		color: var(--primary);
+		border-bottom-color: var(--primary);
+	}
+
+	.tab-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.data-section {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.data-section:last-of-type {
+		border-bottom: none;
+		margin-bottom: 0;
+		padding-bottom: 0;
+	}
+
+	.data-section h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		margin-bottom: 0.75rem;
+	}
+
+	.setting-desc {
+		color: var(--text-secondary);
+		font-size: 0.875rem;
 	}
 
 	.error {
 		color: var(--danger);
 		font-size: 0.875rem;
 		margin-top: 0.5rem;
+	}
+
+	.success {
+		color: var(--success);
+		font-size: 0.875rem;
+		margin-top: 0.5rem;
+	}
+
+	.file-label {
+		display: inline-block;
+		cursor: pointer;
+	}
+
+	.file-input {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		border: 0;
+	}
+
+	.file-button {
+		display: inline-block;
+		padding: 0.75rem 1.5rem;
+		background: var(--primary);
+		color: white;
+		border: none;
+		border-radius: var(--radius);
+		cursor: pointer;
+		font-weight: 500;
+		font-size: 1rem;
+		transition: background-color 0.2s;
+	}
+
+	.file-button:hover {
+		background: var(--primary-hover);
 	}
 
 	.tooltip {
@@ -776,5 +874,64 @@ import {
 
 	:global(input[type='radio']) {
 		cursor: pointer;
+	}
+
+	.purge-confirm-modal {
+		max-width: 400px;
+	}
+
+	.purge-confirm-content {
+		padding: 2rem;
+	}
+
+	.purge-confirm-content h2 {
+		margin-bottom: 1rem;
+	}
+
+	.countdown-text {
+		color: var(--danger);
+		font-size: 1.125rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.purge-confirm-actions {
+		display: flex;
+		gap: 1rem;
+		justify-content: flex-end;
+	}
+
+	.cancel-purge-btn,
+	.confirm-purge-btn {
+		padding: 0.75rem 1.5rem;
+		border-radius: var(--radius);
+		cursor: pointer;
+		font-weight: 500;
+		font-size: 1rem;
+		border: 1px solid var(--border);
+		transition: all 0.2s;
+	}
+
+	.cancel-purge-btn {
+		background: var(--bg-secondary);
+		color: var(--text);
+	}
+
+	.cancel-purge-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.confirm-purge-btn {
+		background: var(--danger);
+		color: white;
+		border-color: var(--danger);
+	}
+
+	.confirm-purge-btn:hover:not(:disabled) {
+		background: var(--danger-hover);
+	}
+
+	.confirm-purge-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 </style>

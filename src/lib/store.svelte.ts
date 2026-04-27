@@ -171,13 +171,19 @@ export const exportSites = (): string => {
 	return JSON.stringify(exportData, null, 2);
 };
 
+export const purgeData = () => {
+	localStorage.removeItem(STORE_KEY);
+	localStorage.removeItem(DARK_KEY);
+	window.location.reload();
+};
+
 export const importSites = (jsonString: string): Config => {
 	try {
 		const parsed = JSON.parse(jsonString);
 		if (parsed && Array.isArray(parsed.sites)) {
 			const imported = migrateConfig(parsed as Record<string, unknown>);
 			const importedSites = imported.sites.map((s, i) => {
-				const id = s.id ?? ++nextId;
+				const id = (typeof s.id === 'number' && s.id > 0) ? s.id : ++nextId;
 				if (Number.isInteger(id) && id > nextId) nextId = id;
 				return { ...s, id };
 			});
