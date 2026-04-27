@@ -523,6 +523,30 @@
 		</section>
 	</form>
 
+	{#if generatedPassword}
+		<section class="result-section">
+			<div
+				class="password-display"
+				style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}"
+			>
+				{showPassword
+					? generatedPassword
+					: generatedPassword
+							.split('')
+							.map(() => '•')
+							.join('')}
+			</div>
+			<div class="password-actions">
+				<button class="toggle-visibility" onclick={() => (showPassword = !showPassword)}>
+					{showPassword ? 'Hide' : 'Show'}
+				</button>
+				<button class="copy-btn" onclick={handleCopy}>
+					{copied ? 'Copied!' : 'Copy to Clipboard'}
+				</button>
+			</div>
+		</section>
+	{/if}
+
 	<section class="site-section">
 		<div class="site-input">
 			<input
@@ -643,30 +667,6 @@
 			</div>
 		{/if}
 	</section>
-
-	{#if generatedPassword}
-		<section class="result-section">
-			<div
-				class="password-display"
-				style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}"
-			>
-				{showPassword
-					? generatedPassword
-					: generatedPassword
-							.split('')
-							.map(() => '•')
-							.join('')}
-			</div>
-			<div class="password-actions">
-				<button class="toggle-visibility" onclick={() => (showPassword = !showPassword)}>
-					{showPassword ? 'Hide' : 'Show'}
-				</button>
-				<button class="copy-btn" onclick={handleCopy}>
-					{copied ? 'Copied!' : 'Copy to Clipboard'}
-				</button>
-			</div>
-		</section>
-	{/if}
 
 	{#if showSettings}
 		<div
@@ -1046,8 +1046,9 @@
 		}
 
 		.password-display {
-			font-size: 1.125rem;
-			letter-spacing: 0.05em;
+			font-size: 1.25rem;
+			letter-spacing: 0.06em;
+			word-break: break-all;
 		}
 
 		.password-actions {
@@ -1057,6 +1058,7 @@
 		.toggle-visibility,
 		.copy-btn {
 			width: 100%;
+			padding: 1rem;
 		}
 
 		.result-section {
