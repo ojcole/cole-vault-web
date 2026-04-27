@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		generatePassword,
-		combinePasswords,
-		symbols,
-		limitedSymbols
-	} from '$lib/password-generation';
+	import { generatePassword, combinePasswords } from '$lib/password-generation';
 	import {
 		getSites,
 		getSettings,
@@ -16,9 +11,12 @@
 		importSites,
 		setSettings,
 		versionStore,
-		purgeData
+		purgeData,
+		addCharset,
+		deleteCharset,
+		renameCharset
 	} from '$lib/store.svelte';
-	import type { Site } from '$lib/store.svelte';
+	import type { Site, Charset } from '$lib/store.svelte';
 	import { onDestroy } from 'svelte';
 
 	let sites = $state<Site[]>([]);
@@ -43,14 +41,24 @@
 	let purgeCountdown = $state(3);
 	let purgeTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 	let purgeCountdownTimer = $state<ReturnType<typeof setInterval> | null>(null);
+	let settings = $state<{ dark: boolean; charsets: Charset[] }>({ dark: false, charsets: [] });
+	let newCharsetName = $state('');
+	let newCharsetChars = $state('');
+	let charsetError = $state('');
+	let charsetSuccess = $state('');
+	let renamingCharset = $state<string | null>(null);
+	let renameValue = $state('');
+	let renamingTo = $state('');
+	let deleteCharsetTarget = $state<string | null>(null);
 
 	const SHORT_WAIT = 2000;
 	const LONG_WAIT = 10000;
 
 	$effect(() => {
 		$versionStore;
-		const settings = getSettings();
-		darkMode = settings.dark;
+		const s = getSettings();
+		darkMode = s.dark;
+		settings = s;
 	});
 
 	$effect(() => {
@@ -65,9 +73,9 @@
 	$effect(() => {
 		const site = selectedId !== null ? getSiteById(selectedId) : null;
 		const master = combinePasswords(master1, master2);
-		const syms = site?.limitedCharset ? limitedSymbols : symbols;
+		const syms = site?.charset ?? '';
 
-		if (site && master) {
+		if (site && master && syms) {
 			generatePassword(site.name, master, syms, site.length).then((pwd) => {
 				generatedPassword = pwd;
 			});
@@ -107,12 +115,16 @@
 		siteName = '';
 	}
 
-	function showSuccess(): void {
+	function showSuccess(message?: string): void {
 		showTooltip = true;
-		clearTimeout(tooltipTimer);
+		if (tooltipTimer) clearTimeout(tooltipTimer);
 		tooltipTimer = setTimeout(() => {
 			showTooltip = false;
 		}, SHORT_WAIT);
+	}
+
+	function getCharsetCharsetName(chars: string): string {
+		return settings.charsets.find((c) => c.chars === chars)?.name ?? chars;
 	}
 
 	function handleCopy() {
@@ -120,8 +132,8 @@
 
 		navigator.clipboard.writeText(generatedPassword).then(() => {
 			copied = true;
-			clearTimeout(copyTimer);
-			clearTimeout(resetTimer);
+			if (copyTimer) clearTimeout(copyTimer);
+			if (resetTimer) clearTimeout(resetTimer);
 
 			copyTimer = setTimeout(() => {
 				copied = false;
@@ -181,12 +193,12 @@
 	function openPurgeConfirm() {
 		showPurgeConfirm = true;
 		purgeCountdown = 3;
-		clearTimeout(purgeTimer);
-		clearInterval(purgeCountdownTimer);
+		if (purgeTimer) clearTimeout(purgeTimer);
+		if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 		purgeCountdownTimer = setInterval(() => {
 			purgeCountdown--;
 			if (purgeCountdown <= 0) {
-				clearInterval(purgeCountdownTimer);
+				if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 				purgeCountdownTimer = null;
 			}
 		}, 1000);
@@ -194,8 +206,8 @@
 
 	function confirmPurge() {
 		if (purgeCountdown > 0) return;
-		clearTimeout(purgeTimer);
-		clearInterval(purgeCountdownTimer);
+		if (purgeTimer) clearTimeout(purgeTimer);
+		if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 		purgeTimer = null;
 		purgeCountdownTimer = null;
 		showPurgeConfirm = false;
@@ -203,8 +215,8 @@
 	}
 
 	function cancelPurge() {
-		clearTimeout(purgeTimer);
-		clearInterval(purgeCountdownTimer);
+		if (purgeTimer) clearTimeout(purgeTimer);
+		if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 		purgeTimer = null;
 		purgeCountdownTimer = null;
 		showPurgeConfirm = false;
@@ -212,18 +224,82 @@
 
 	function closeSettings() {
 		showSettings = false;
-		clearTimeout(purgeTimer);
-		clearInterval(purgeCountdownTimer);
+		if (purgeTimer) clearTimeout(purgeTimer);
+		if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 		purgeTimer = null;
 		purgeCountdownTimer = null;
+		charsetError = '';
+		charsetSuccess = '';
+		renamingCharset = null;
+		deleteCharsetTarget = null;
+	}
+
+	function createCharset() {
+		charsetError = '';
+		charsetSuccess = '';
+		const trimmed = newCharsetName.trim();
+		if (!trimmed) {
+			charsetError = 'Name is required';
+			return;
+		}
+		if (!newCharsetChars.trim()) {
+			charsetError = 'Characters are required';
+			return;
+		}
+		const result = addCharset(trimmed, newCharsetChars.trim());
+		if (result === null) {
+			charsetError = 'A charset with this name already exists';
+			return;
+		}
+		newCharsetName = '';
+		newCharsetChars = '';
+		charsetSuccess = 'Created!';
+		setTimeout(() => {
+			charsetSuccess = '';
+		}, 2000);
+	}
+
+	function startRename(name: string) {
+		renamingCharset = name;
+		renameValue = name;
+	}
+
+	function confirmRename() {
+		if (!renamingCharset) return;
+		const trimmed = renamingTo.trim();
+		if (!trimmed) return;
+		renameCharset(renamingCharset, trimmed);
+		renamingCharset = null;
+		renameValue = '';
+		renamingTo = '';
+	}
+
+	function cancelRename() {
+		renamingCharset = null;
+		renameValue = '';
+		renamingTo = '';
+	}
+
+	function startDelete(name: string) {
+		deleteCharsetTarget = name;
+	}
+
+	function confirmDelete() {
+		if (!deleteCharsetTarget) return;
+		deleteCharset(deleteCharsetTarget);
+		deleteCharsetTarget = null;
+	}
+
+	function cancelDelete() {
+		deleteCharsetTarget = null;
 	}
 
 	onDestroy(() => {
-		clearTimeout(copyTimer);
-		clearTimeout(resetTimer);
-		clearTimeout(tooltipTimer);
-		clearTimeout(purgeTimer);
-		clearInterval(purgeCountdownTimer);
+		if (copyTimer) clearTimeout(copyTimer);
+		if (resetTimer) clearTimeout(resetTimer);
+		if (tooltipTimer) clearTimeout(tooltipTimer);
+		if (purgeTimer) clearTimeout(purgeTimer);
+		if (purgeCountdownTimer) clearInterval(purgeCountdownTimer);
 	});
 </script>
 
@@ -231,9 +307,20 @@
 	<header>
 		<h1>Cole Vault</h1>
 		<div class="header-actions">
-			<button class="settings-btn" onclick={() => setSettings({ dark: !darkMode })} title="Toggle theme">
+			<button
+				class="settings-btn"
+				onclick={() => setSettings({ ...settings, dark: !darkMode })}
+				title="Toggle theme"
+			>
 				{#if darkMode}
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						width="18"
+						height="18"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<circle cx="12" cy="12" r="5" />
 						<line x1="12" y1="1" x2="12" y2="3" />
 						<line x1="12" y1="21" x2="12" y2="23" />
@@ -245,15 +332,31 @@
 						<line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
 					</svg>
 				{:else}
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						width="18"
+						height="18"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
 					</svg>
 				{/if}
 			</button>
 			<button class="settings-btn" onclick={openSettings} title="Settings">
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<svg
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<circle cx="12" cy="12" r="3" />
-					<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+					<path
+						d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+					/>
 				</svg>
 			</button>
 		</div>
@@ -272,7 +375,12 @@
 
 	<section class="site-section">
 		<div class="site-input">
-			<input type="text" bind:value={siteName} placeholder="Enter new site name" onkeypress={(e) => e.key === 'Enter' && addNewSite()} />
+			<input
+				type="text"
+				bind:value={siteName}
+				placeholder="Enter new site name"
+				onkeypress={(e) => e.key === 'Enter' && addNewSite()}
+			/>
 			<button onclick={addNewSite}>Add</button>
 		</div>
 
@@ -297,26 +405,56 @@
 					{#each filteredSites as site (site.id)}
 						<tr class:selected={selectedId === site.id}>
 							<td>
-								<input type="radio" name="site" checked={selectedId === site.id} onchange={() => (selectedId = site.id)} />
+								<input
+									type="radio"
+									name="site"
+									checked={selectedId === site.id}
+									onchange={() => (selectedId = site.id)}
+								/>
 							</td>
 							<td>{site.name}</td>
 							<td>
-								<select value={site.length} onchange={(e) => updateSite(site.id, { length: Number(e.target.value) })}>
+								<select
+									value={site.length}
+									onchange={(e) =>
+										updateSite(site.id, { length: Number((e.target as HTMLSelectElement).value) })}
+								>
 									{#each Array.from({ length: 32 }, (_, i) => i + 1) as len, _i (len)}
 										<option value={len}>{len}</option>
 									{/each}
 								</select>
 							</td>
 							<td>
-								<button class="charset-btn" onclick={() => updateSite(site.id, { limitedCharset: !site.limitedCharset })} title={site.limitedCharset ? 'Limited charset (alphanumeric)' : 'Full ASCII charset'}>
-									{site.limitedCharset ? 'Aa1' : 'Aa1!'}
-								</button>
+								<select
+									value={getCharsetCharsetName(site.charset)}
+									onchange={(e) => {
+										const target = e.target as HTMLSelectElement;
+										const selected = settings.charsets.find((c) => c.name === target?.value);
+										if (selected) {
+											updateSite(site.id, { charset: selected.chars });
+										}
+									}}
+									title="Select charset"
+								>
+									{#each settings.charsets as charset}
+										<option value={charset.name}>{charset.name}</option>
+									{/each}
+								</select>
 							</td>
 							<td>
 								<button class="delete-btn" onclick={() => removeSite(site.id)} title="Delete site">
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
 										<polyline points="3 6 5 6 21 6" />
-										<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+										<path
+											d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+										/>
 									</svg>
 								</button>
 							</td>
@@ -329,8 +467,16 @@
 
 	{#if generatedPassword}
 		<section class="result-section">
-			<div class="password-display" style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}">
-				{showPassword ? generatedPassword : generatedPassword.split('').map(() => '•').join('')}
+			<div
+				class="password-display"
+				style="font-family: {showPassword ? 'inherit' : 'Courier New, monospace'}"
+			>
+				{showPassword
+					? generatedPassword
+					: generatedPassword
+							.split('')
+							.map(() => '•')
+							.join('')}
 			</div>
 			<div class="password-actions">
 				<button class="toggle-visibility" onclick={() => (showPassword = !showPassword)}>
@@ -344,13 +490,31 @@
 	{/if}
 
 	{#if showSettings}
-		<div class="modal-overlay" role="presentation" tabindex="-1" onclick={(e) => e.target === e.currentTarget && closeSettings()} onkeydown={(e) => e.key === 'Escape' && closeSettings()}>
+		<div
+			class="modal-overlay"
+			role="presentation"
+			tabindex="-1"
+			onclick={(e) => e.target === e.currentTarget && closeSettings()}
+			onkeydown={(e) => e.key === 'Escape' && closeSettings()}
+		>
 			<div class="modal data-modal">
 				<div class="data-content">
 					<div class="tab-header">
-						<button class="tab-btn{activeTab === 'data' ? ' active' : ''}" onclick={() => activeTab = 'data'}>Data</button>
-						<button class="tab-btn{activeTab === 'charsets' ? ' active' : ''}" disabled>Charsets</button>
-						<button class="tab-btn{activeTab === 'settings' ? ' active' : ''}" disabled>Settings</button>
+						<button
+							class="tab-btn{activeTab === 'data' ? ' active' : ''}"
+							onclick={() => (activeTab = 'data')}>Data</button
+						>
+						<button
+							class="tab-btn{activeTab === 'charsets' ? ' active' : ''}"
+							onclick={() => {
+								activeTab = 'charsets';
+								charsetError = '';
+								charsetSuccess = '';
+							}}>Charsets</button
+						>
+						<button class="tab-btn{activeTab === 'settings' ? ' active' : ''}" disabled
+							>Settings</button
+						>
 					</div>
 
 					{#if activeTab === 'data'}
@@ -371,14 +535,94 @@
 						<div class="data-section">
 							<h3>Export</h3>
 							<button onclick={handleExport} class="export-btn">Export Sites</button>
-							<p class="setting-desc" style="margin-top: 0.75rem;">Download all your sites and settings as a JSON file.</p>
+							<p class="setting-desc" style="margin-top: 0.75rem;">
+								Download all your sites and settings as a JSON file.
+							</p>
 						</div>
 
 						<div class="data-section purge-section">
 							<h3 style="color: var(--danger);">Purge</h3>
 							<button onclick={openPurgeConfirm} class="purge-btn">Purge Everything</button>
-							<p class="setting-desc" style="margin-top: 0.75rem; color: var(--danger);">This will permanently delete all your data. This cannot be undone.</p>
+							<p class="setting-desc" style="margin-top: 0.75rem; color: var(--danger);">
+								This will permanently delete all your data. This cannot be undone.
+							</p>
 						</div>
+					{/if}
+
+					{#if activeTab === 'charsets'}
+						<div class="charset-section">
+							<h3>Create Charset</h3>
+							<div class="charset-form">
+								<input type="text" bind:value={newCharsetName} placeholder="Charset name" />
+								<input
+									type="text"
+									bind:value={newCharsetChars}
+									placeholder="Characters (e.g. abc123!@#)"
+								/>
+								<button onclick={createCharset} class="export-btn">Create</button>
+							</div>
+							{#if charsetError}
+								<p class="error">{charsetError}</p>
+							{/if}
+							{#if charsetSuccess}
+								<p class="success">{charsetSuccess}</p>
+							{/if}
+						</div>
+
+						<div class="charset-section">
+							<h3>Charsets</h3>
+							{#each settings.charsets as charset}
+								<div class="charset-item">
+									<span class="charset-name">
+										{#if renamingCharset === charset.name}
+											<input type="text" bind:value={renameValue} class="rename-input" />
+										{:else}
+											<span class="name-text">{charset.name}</span>
+										{/if}
+									</span>
+									<span class="charset-chars">{charset.chars}</span>
+									{#if renamingCharset === charset.name}
+										<div class="rename-actions">
+											<button
+												onclick={confirmRename}
+												class="export-btn"
+												style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">OK</button
+											>
+											<button
+												onclick={cancelRename}
+												class="cancel-purge-btn"
+												style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">Cancel</button
+											>
+										</div>
+									{:else}
+										<div class="charset-actions">
+											<button onclick={() => startRename(charset.name)} class="charset-action-btn"
+												>Rename</button
+											>
+											<button onclick={() => startDelete(charset.name)} class="charset-delete-btn"
+												>Delete</button
+											>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+
+						{#if deleteCharsetTarget}
+							<div class="charset-delete-confirm">
+								<p>Are you sure you want to delete the charset "{deleteCharsetTarget}"?</p>
+								<div class="charset-delete-actions">
+									<button onclick={confirmDelete} class="purge-btn" style="padding: 0.5rem 1rem;"
+										>Yes, Delete</button
+									>
+									<button
+										onclick={cancelDelete}
+										class="cancel-purge-btn"
+										style="padding: 0.5rem 1rem;">Cancel</button
+									>
+								</div>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			</div>
@@ -386,11 +630,19 @@
 	{/if}
 
 	{#if showPurgeConfirm}
-		<div class="modal-overlay" role="presentation" tabindex="-1" onclick={(e) => e.target === e.currentTarget && cancelPurge()} onkeydown={(e) => e.key === 'Escape' && cancelPurge()}>
+		<div
+			class="modal-overlay"
+			role="presentation"
+			tabindex="-1"
+			onclick={(e) => e.target === e.currentTarget && cancelPurge()}
+			onkeydown={(e) => e.key === 'Escape' && cancelPurge()}
+		>
 			<div class="modal purge-confirm-modal">
 				<div class="purge-confirm-content">
 					<h2 style="color: var(--danger);">Confirm Purge</h2>
-					<p style="margin-bottom: 1rem;">This will permanently delete all your data. This cannot be undone.</p>
+					<p style="margin-bottom: 1rem;">
+						This will permanently delete all your data. This cannot be undone.
+					</p>
 					<p class="countdown-text">
 						{#if purgeCountdown > 0}
 							Please wait <strong>{purgeCountdown}</strong> seconds...
@@ -400,7 +652,9 @@
 					</p>
 					<div class="purge-confirm-actions">
 						<button onclick={cancelPurge} class="cancel-purge-btn">Cancel</button>
-						<button onclick={confirmPurge} class="confirm-purge-btn" disabled={purgeCountdown > 0}>Confirm Purge</button>
+						<button onclick={confirmPurge} class="confirm-purge-btn" disabled={purgeCountdown > 0}
+							>Confirm Purge</button
+						>
 					</div>
 				</div>
 			</div>
@@ -642,22 +896,6 @@
 		cursor: pointer;
 	}
 
-	.charset-btn {
-		padding: 0.25rem 0.5rem;
-		background: var(--bg-secondary);
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--text);
-		transition: all 0.2s;
-	}
-
-	.charset-btn:hover {
-		background: var(--bg-hover);
-	}
-
 	.delete-btn {
 		background: none;
 		border: none;
@@ -732,7 +970,7 @@
 		background: var(--bg);
 		border-radius: var(--radius);
 		padding: 0;
-		max-width: 500px;
+		max-width: 800px;
 		width: 100%;
 		max-height: 80vh;
 		overflow: hidden;
@@ -813,6 +1051,124 @@
 		color: var(--success);
 		font-size: 0.875rem;
 		margin-top: 0.5rem;
+	}
+
+	.charset-section {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.charset-section:last-of-type {
+		border-bottom: none;
+		padding-bottom: 0;
+	}
+
+	.charset-section h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		margin-bottom: 0.75rem;
+	}
+
+	.charset-form {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.charset-form input {
+		flex: 1;
+	}
+
+	.charset-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.charset-item:last-child {
+		border-bottom: none;
+	}
+
+	.charset-name {
+		font-weight: 600;
+		min-width: 100px;
+	}
+
+	.charset-chars {
+		flex: 1;
+		font-family: 'Courier New', monospace;
+		font-size: 0.875rem;
+		word-break: break-all;
+	}
+
+	.charset-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.charset-action-btn {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 0.25rem 0.5rem;
+		cursor: pointer;
+		font-size: 0.75rem;
+		color: var(--text);
+		transition: all 0.2s;
+	}
+
+	.charset-action-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.charset-delete-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		color: var(--danger);
+		padding: 0.25rem 0.5rem;
+		font-size: 0.75rem;
+		transition: all 0.2s;
+	}
+
+	.charset-delete-btn:hover {
+		color: var(--danger-hover);
+	}
+
+	.rename-input {
+		flex: 1;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.rename-actions {
+		display: flex;
+		gap: 0.25rem;
+	}
+
+	.charset-delete-confirm {
+		margin-top: 1rem;
+		padding: 1rem;
+		background: var(--bg-secondary);
+		border-radius: var(--radius);
+		border: 1px solid var(--border);
+	}
+
+	.charset-delete-confirm p {
+		margin-bottom: 0.75rem;
+	}
+
+	.charset-delete-actions {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: flex-end;
+	}
+
+	.name-text {
+		cursor: default;
 	}
 
 	.file-label {

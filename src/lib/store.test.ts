@@ -24,7 +24,9 @@ describe('store', () => {
 		expect(result).not.toBeNull();
 		expect(result!.name).toBe('test-site');
 		expect(result!.length).toBe(32);
-		expect(result!.limitedCharset).toBe(false);
+		expect(result!.charset).toBe(
+			'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ '
+		);
 		expect(typeof result!.id).toBe('number');
 
 		const updated = store.getSites();
@@ -69,12 +71,17 @@ describe('store', () => {
 		const store = await loadStore();
 		const site = store.addSite('test');
 		expect(site!.length).toBe(32);
-		expect(site!.limitedCharset).toBe(false);
+		expect(site!.charset).toBe(
+			'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ '
+		);
 
-		store.updateSite(site!.id, { length: 16, limitedCharset: true });
+		store.updateSite(site!.id, {
+			length: 16,
+			charset: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+		});
 		const updated = store.getSiteById(site!.id);
 		expect(updated!.length).toBe(16);
-		expect(updated!.limitedCharset).toBe(true);
+		expect(updated!.charset).toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 	});
 
 	it('getSiteById returns undefined for non-existent id', async () => {
@@ -88,7 +95,8 @@ describe('store', () => {
 		const before = store.getSettings();
 		expect(before.dark).toBe(false);
 
-		store.setSettings({ dark: true });
+		const currentSettings = store.getSettings();
+		store.setSettings({ ...currentSettings, dark: true });
 		const after = store.getSettings();
 
 		expect(after.dark).toBe(true);
@@ -97,7 +105,8 @@ describe('store', () => {
 
 	it('setSettings persists dark mode across reads', async () => {
 		const store = await loadStore();
-		store.setSettings({ dark: true });
+		const currentSettings = store.getSettings();
+		store.setSettings({ ...currentSettings, dark: true });
 
 		const read1 = store.getSettings();
 		const read2 = store.getSettings();
@@ -109,7 +118,8 @@ describe('store', () => {
 
 	it('getSettings returns a fresh object each time', async () => {
 		const store = await loadStore();
-		store.setSettings({ dark: true });
+		const currentSettings = store.getSettings();
+		store.setSettings({ ...currentSettings, dark: true });
 
 		const a = store.getSettings();
 		const b = store.getSettings();
@@ -145,7 +155,7 @@ describe('store', () => {
 		expect(sites.length).toBe(1);
 		expect(sites[0].name).toBe('imported-site');
 		expect(sites[0].length).toBe(24);
-		expect(sites[0].limitedCharset).toBe(true);
+		expect(sites[0].charset).toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 	});
 
 	it('importSites handles invalid JSON gracefully', async () => {
@@ -171,7 +181,7 @@ describe('store', () => {
 	it("imported sites with explicit IDs don't conflict with new sites", async () => {
 		const store = await loadStore();
 		const json = JSON.stringify({
-			sites: [{ id: 10, name: 'old-site', length: 32, limitedCharset: false }],
+			sites: [{ id: 10, name: 'old-site', length: 32 }],
 			exportDate: '2025-01-01',
 			version: '1.0'
 		});
@@ -216,8 +226,9 @@ describe('store', () => {
 	it('version increments on setSettings', async () => {
 		const store = await loadStore();
 		const v0 = getVersion(store);
+		const currentSettings = store.getSettings();
 
-		store.setSettings({ dark: true });
+		store.setSettings({ ...currentSettings, dark: true });
 		expect(getVersion(store)).toBeGreaterThan(v0);
 	});
 
@@ -226,7 +237,7 @@ describe('store', () => {
 		const v0 = getVersion(store);
 
 		const json = JSON.stringify({
-			sites: [{ name: 'imported', length: 32, limitedCharset: false }],
+			sites: [{ name: 'imported', length: 32 }],
 			exportDate: '2025-01-01',
 			version: '1.0'
 		});
@@ -246,7 +257,7 @@ describe('store', () => {
 		expect(parsed.sites[0].site).toBe('example');
 		expect(parsed.sites[0]).not.toHaveProperty('name');
 		expect(parsed.sites[0]).toHaveProperty('length');
-		expect(parsed.sites[0]).toHaveProperty('limitedCharset');
+		expect(parsed.sites[0]).toHaveProperty('charset');
 	});
 
 	it('import accepts "site" field from Password-Manager', async () => {
@@ -262,7 +273,7 @@ describe('store', () => {
 		expect(sites.length).toBe(1);
 		expect(sites[0].name).toBe('pm-site');
 		expect(sites[0].length).toBe(24);
-		expect(sites[0].limitedCharset).toBe(true);
+		expect(sites[0].charset).toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 	});
 
 	it('export and import are compatible with Password-Manager format', async () => {
@@ -284,9 +295,9 @@ describe('store', () => {
 
 		const json = JSON.stringify({
 			sites: [
-				{ site: 'site-a', length: 32, limitedCharset: false },
+				{ site: 'site-a', length: 32 },
 				{ site: 'site-b', length: 24, limitedCharset: true },
-				{ site: 'site-c', length: 16, limitedCharset: false }
+				{ site: 'site-c', length: 16 }
 			],
 			exportDate: '2025-01-01',
 			version: '1.0'

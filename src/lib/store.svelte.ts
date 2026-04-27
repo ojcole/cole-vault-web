@@ -4,11 +4,17 @@ export interface Site {
 	id: number;
 	name: string;
 	length: number;
-	limitedCharset: boolean;
+	charset: string;
+}
+
+export interface Charset {
+	name: string;
+	chars: string;
 }
 
 export interface AppSettings {
 	dark: boolean;
+	charsets: Charset[];
 }
 
 export interface Config {
@@ -22,6 +28,15 @@ const DARK_KEY = 'cole-vault-dark';
 
 const defaultSites: Site[] = [];
 
+const defaultCharsets: Charset[] = [
+	{
+		name: 'Full ASCII',
+		chars:
+			'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ '
+	},
+	{ name: 'Alphanumeric', chars: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789' }
+];
+
 let savedDark = false;
 try {
 	const stored = localStorage.getItem(DARK_KEY);
@@ -33,11 +48,12 @@ try {
 }
 
 const defaultSettings: AppSettings = {
-	dark: savedDark
+	dark: savedDark,
+	charsets: defaultCharsets
 };
 
 const defaultConfig: Config = {
-	version: '2',
+	version: '3',
 	settings: defaultSettings,
 	sites: defaultSites
 };
@@ -48,7 +64,12 @@ const loadConfig = (): Config => {
 		if (stored) {
 			const parsed: Record<string, unknown> = JSON.parse(stored);
 			if (parsed && Array.isArray(parsed.sites)) {
-				return migrateConfig(parsed as Record<string, unknown>);
+				const config = migrateConfig(parsed as Record<string, unknown>);
+				// Ensure default charsets exist
+				if (!Array.isArray(config.settings.charsets)) {
+					config.settings.charsets = [...defaultCharsets];
+				}
+				return config;
 			}
 		}
 	} catch {
@@ -95,7 +116,10 @@ export const getConfig = (): Config => config;
 
 export const getSites = (): Site[] => config.sites;
 
-export const getSettings = (): AppSettings => ({ ...config.settings });
+export const getSettings = (): AppSettings => ({
+	...config.settings,
+	charsets: [...(config.settings.charsets ?? defaultCharsets)]
+});
 
 const inc = () => {
 	versionValue++;
@@ -108,6 +132,36 @@ export const setSettings = (settings: AppSettings) => {
 	saveConfig(config);
 };
 
+export const addCharset = (name: string, chars: string): Charset | null => {
+	const existing = config.settings.charsets.find(
+		(c) => c.name.toLowerCase() === name.toLowerCase()
+	);
+	if (existing) {
+		return null;
+	}
+
+	const newCharset: Charset = { name, chars };
+	config.settings.charsets.push(newCharset);
+	inc();
+	saveConfig(config);
+	return newCharset;
+};
+
+export const deleteCharset = (name: string) => {
+	config.settings.charsets = config.settings.charsets.filter((c) => c.name !== name);
+	inc();
+	saveConfig(config);
+};
+
+export const renameCharset = (oldName: string, newName: string) => {
+	const index = config.settings.charsets.findIndex((c) => c.name === oldName);
+	if (index !== -1) {
+		config.settings.charsets[index].name = newName;
+		inc();
+		saveConfig(config);
+	}
+};
+
 export const addSite = (siteName: string): Site | null => {
 	const existing = config.sites.find((s) => s.name.toLowerCase() === siteName.toLowerCase());
 	if (existing) {
@@ -118,7 +172,7 @@ export const addSite = (siteName: string): Site | null => {
 		id: ++nextId,
 		name: siteName,
 		length: 32,
-		limitedCharset: false
+		charset: config.settings.charsets?.[0]?.chars ?? ''
 	};
 
 	config.sites.push(newSite);
@@ -153,15 +207,17 @@ export const compareSites = (a: Site, b: Site): number => {
 	if (a.name > b.name) return 1;
 	if (a.length < b.length) return -1;
 	if (a.length > b.length) return 1;
-	if (!a.limitedCharset && b.limitedCharset) return -1;
-	if (a.limitedCharset && !b.limitedCharset) return 1;
+	if (!a.charset && b.charset) return -1;
+	if (a.charset && !b.charset) return 1;
 	return 0;
 };
 
 export const exportSites = (): string => {
 	const exportData = {
-		sites: config.sites.map(({ id: _skipId, name, ...rest }) => ({
+		sites: config.sites.map(({ id: _skipId, name, length, charset, ...rest }) => ({
 			site: name,
+			length,
+			charset,
 			...rest
 		})),
 		settings: config.settings,
@@ -183,7 +239,7 @@ export const importSites = (jsonString: string): Config => {
 		if (parsed && Array.isArray(parsed.sites)) {
 			const imported = migrateConfig(parsed as Record<string, unknown>);
 			const importedSites = imported.sites.map((s, i) => {
-				const id = (typeof s.id === 'number' && s.id > 0) ? s.id : ++nextId;
+				const id = typeof s.id === 'number' && s.id > 0 ? s.id : ++nextId;
 				if (Number.isInteger(id) && id > nextId) nextId = id;
 				return { ...s, id };
 			});
