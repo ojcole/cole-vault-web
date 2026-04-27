@@ -35,7 +35,7 @@
 	let activeTab = $state('data');
 	let showPassword = $state(false);
 	let showMaster1 = $state(false);
-	let showMaster2 = $state(false);
+	let master1Type = $derived(showMaster1 ? 'text' : 'password');
 	let importError = $state('');
 	let importSuccess = $state(false);
 	let showTooltip = $state(false);
@@ -429,11 +429,10 @@
 		<section class="input-section">
 			<div class="password-inputs">
 				<label for="master1">Master Key</label>
-				<input type="hidden" autocomplete="username" />
 				<div class="password-field">
 					<input
 						id="master1"
-						type="password"
+						type={master1Type}
 						bind:value={master1}
 						placeholder="Enter master key"
 						autocomplete="current-password"
@@ -476,49 +475,13 @@
 			</div>
 			<div class="password-inputs">
 				<label for="master2">Account Key</label>
-				<div class="password-field">
-					<input
-						id="master2"
-						type="text"
-						bind:value={master2}
-						placeholder="Enter account key"
-						autocomplete="off"
-						class="master-input"
-					/>
-					<button
-						type="button"
-						class="password-toggle"
-						onclick={() => (showMaster2 = !showMaster2)}
-						title="{showMaster2 ? 'Hide' : 'Show'}"
-					>
-						{#if showMaster2}
-							<svg
-								width="18"
-								height="18"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-								<path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-								<line x1="1" y1="1" x2="23" y2="23" />
-							</svg>
-						{:else}
-							<svg
-								width="18"
-								height="18"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-								<circle cx="12" cy="12" r="3" />
-							</svg>
-						{/if}
-					</button>
-				</div>
+				<input
+					id="master2"
+					type="text"
+					bind:value={master2}
+					placeholder="Enter account key"
+					autocomplete="off"
+				/>
 			</div>
 		</section>
 	</form>
