@@ -426,13 +426,13 @@
 	<form onsubmit={(e) => e.preventDefault()} style="display:contents">
 		<section class="input-section">
 			<div class="password-inputs">
-				<label for="master1">Password 1</label>
+				<label for="master1">Master Key</label>
 				<input type="hidden" autocomplete="username" />
-				<input id="master1" type="password" bind:value={master1} placeholder="Enter password 1" autocomplete="current-password" />
+				<input id="master1" type="password" bind:value={master1} placeholder="Enter master key" autocomplete="current-password" />
 			</div>
 			<div class="password-inputs">
-				<label for="master2">Password 2</label>
-				<input id="master2" type="password" bind:value={master2} placeholder="Enter password 2" autocomplete="off" />
+				<label for="master2">Account Key</label>
+				<input id="master2" type="password" bind:value={master2} placeholder="Enter account key" autocomplete="off" />
 			</div>
 		</section>
 	</form>
