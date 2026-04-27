@@ -432,7 +432,7 @@
 			</div>
 			<div class="password-inputs">
 				<label for="master2">Account Key</label>
-				<input id="master2" type="password" bind:value={master2} placeholder="Enter account key" autocomplete="off" />
+				<input id="master2" type="text" bind:value={master2} placeholder="Enter account key" autocomplete="off" />
 			</div>
 		</section>
 	</form>
